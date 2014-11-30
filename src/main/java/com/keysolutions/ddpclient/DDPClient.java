@@ -31,6 +31,8 @@ import org.java_websocket.handshake.ServerHandshake;
 
 import com.google.gson.Gson;
 
+
+
 /**
  * Java Meteor DDP websocket client
  * @author kenyee
@@ -79,12 +81,20 @@ public class DDPClient extends Observable {
         public static final String ERROR = "error";
         public static final String CLOSED = "closed";
         public static final String ADDED = "added";
+
         public static final String REMOVED = "removed";
         public static final String CHANGED = "changed";
+        // BB-MOD -added for DDP Protocol v1 - https://github.com/meteor/meteor/blob/devel/packages/ddp/DDP.md
+        public static final String PING = "ping";
+        public static final String PONG = "pong";
+        // TODO addedbefore and movedbefore are used with ordered collections - but as of Meteor 1.0 those are not used
+        // The ordered collection DDP messages are not currently used by Meteor. They will likely be used by Meteor in the future.
+        public static final String ADDEDBEFORE = "addedbefore"; // Todo find a usage for it in DDPStateSingleton
+        public static final String MOVEDBEFORE = "movedbefore"; // Todo find a usage for it in DDPStateSingleton
     }
 
     /** DDP protocol version */
-    private final static String DDP_PROTOCOL_VERSION = "pre1";
+    private final static String DDP_PROTOCOL_VERSION = "1";//"pre1"; // BB-MOD updated from "pre1" to "1"
     /** DDP connection state */
     public enum CONNSTATE {
         Disconnected,
@@ -116,8 +126,9 @@ public class DDPClient extends Observable {
      * @param useSSL Whether to use SSL for websocket encryption
      * @throws URISyntaxException
      */
-    public DDPClient(String meteorServerIp, Integer meteorServerPort, boolean useSSL)
-            throws URISyntaxException {
+    public DDPClient(String meteorServerIp, Integer meteorServerPort, boolean useSSL) throws URISyntaxException {
+        log.info("DDPClient", "DDPClient - " + "meteorServerIp = [" + meteorServerIp + "], meteorServerPort = [" + meteorServerPort + "], useSSL = [" + useSSL + "]");
+
         initWebsocket(meteorServerIp, meteorServerPort, useSSL);
     }
     
@@ -133,8 +144,7 @@ public class DDPClient extends Observable {
      *            - Port of Meteor server, if left null it will default to 3000
      * @throws URISyntaxException
      */
-    public DDPClient(String meteorServerIp, Integer meteorServerPort)
-            throws URISyntaxException {
+    public DDPClient(String meteorServerIp, Integer meteorServerPort) throws URISyntaxException {
         initWebsocket(meteorServerIp, meteorServerPort, false);
     }
     
@@ -195,9 +205,14 @@ public class DDPClient extends Observable {
      * confirmation message to the Meteor server.
      */
     private void connectionOpened() {
-        log.trace("WebSocket connection opened");
+        log.trace("DDPClient - WebSocket connection opened sending protocol version: " + DDP_PROTOCOL_VERSION);
         // reply to Meteor server with connection confirmation message ({"msg":
         // "connect"})
+
+        // Builds an object appropriate for the ddp protocol
+        // {"msg":"connect","version":"1","support":["pre1"]}
+        // but it could be
+        // {"msg":"connect","version":"1","support":["1","pre2","pre1"]}
         Map<String, Object> connectMsg = new HashMap<String, Object>();
         connectMsg.put(DdpMessageField.MSG, DdpMessageType.CONNECT);
         connectMsg.put(DdpMessageField.VERSION, DDP_PROTOCOL_VERSION);
@@ -270,6 +285,7 @@ public class DDPClient extends Observable {
      * Initiate connection to meteor server
      */
     public void connect() {
+        log.info("DDPClient - connect info");
         if (this.mWsClient.getReadyState() == READYSTATE.CLOSED) {
             // we need to create a new wsClient because a closed websocket cannot be reused
             try {
@@ -334,8 +350,7 @@ public class DDPClient extends Observable {
      * @param params arguments corresponding to the Meteor subscription
      * @param resultListener DDP command listener for this call
      */
-    public int subscribe(String name, Object[] params,
-            DDPListener resultListener) {
+    public int subscribe(String name, Object[] params, DDPListener resultListener) {
         Map<String, Object> subMsg = new HashMap<String, Object>();
         subMsg.put(DdpMessageField.MSG, DdpMessageType.SUB);
         subMsg.put(DdpMessageField.NAME, name);
@@ -477,7 +492,7 @@ public class DDPClient extends Observable {
      */
     public void send(Map<String, Object> connectMsg) {
         String json = mGson.toJson(connectMsg);
-        /*System.out.println*/log.debug("Sending {}" + json);
+        /*System.out.println*/log.info("DDPClient - Sending DDP message: {} " , json);
         try {
         this.mWsClient.send(json);
         } catch (WebsocketNotConnectedException ex) {
@@ -489,29 +504,29 @@ public class DDPClient extends Observable {
     /**
      * Notifies observers of this DDP client of messages received from the
      * Meteor server
+     * read DDP Specification: https://github.com/meteor/meteor/blob/devel/packages/ddp/DDP.md
      * 
      * @param msg received msg from websocket
      */
     @SuppressWarnings("unchecked")
     public void received(String msg) {
-         /*System.out.println*/log.debug("Received response: {}", msg);
+
+         /*System.out.println*/log.info("DDPClient - Received DDP message: {}", msg);
         this.setChanged();
         // generic object deserialization is from
         // http://programmerbruce.blogspot.com/2011/06/gson-v-jackson.html
-        Map<String, Object> jsonFields = mGson.fromJson((String) msg,
-                HashMap.class);
-        this.notifyObservers(jsonFields);
+        Map<String, Object> jsonFields = mGson.fromJson((String) msg, HashMap.class);
+        //this.notifyObservers(jsonFields); //BB-MOD moved at the end of the if else clauses so that the observers are notified AFTER the internal state has been updated
 
         // notify any command listeners if we get updated or result msgs
-        String msgtype = (String) jsonFields
-                .get(DdpMessageField.MSG.toString());
+        String msgtype = (String) jsonFields.get(DdpMessageField.MSG.toString());
+        //log.info("DDPClient - Received msgtype: " + msgtype);
         if (msgtype == null) {
             // ignore {"server_id":"GqrKrbcSeDfTYDkzQ"} web socket msgs
             return;
         }
         if (msgtype.equals(DdpMessageType.UPDATED)) {
-            ArrayList<String> methodIds = (ArrayList<String>) jsonFields
-                    .get(DdpMessageField.METHODS);
+            ArrayList<String> methodIds = (ArrayList<String>) jsonFields.get(DdpMessageField.METHODS);
             for (String methodId : methodIds) {
                 DDPListener listener = (DDPListener) mMsgListeners.get(methodId);
                 if (listener != null) {
@@ -519,8 +534,7 @@ public class DDPClient extends Observable {
                 }
             }
         } else if (msgtype.equals(DdpMessageType.READY)) {
-            ArrayList<String> methodIds = (ArrayList<String>) jsonFields
-                    .get(DdpMessageField.SUBS);
+            ArrayList<String> methodIds = (ArrayList<String>) jsonFields.get(DdpMessageField.SUBS);
             for (String methodId : methodIds) {
                 DDPListener listener = (DDPListener) mMsgListeners.get(methodId);
                 if (listener != null) {
@@ -528,17 +542,14 @@ public class DDPClient extends Observable {
                 }
             }
         } else if (msgtype.equals(DdpMessageType.NOSUB)) {
-            String msgId = (String) jsonFields.get(DdpMessageField.ID
-                    .toString());
+            String msgId = (String) jsonFields.get(DdpMessageField.ID.toString());
             DDPListener listener = (DDPListener) mMsgListeners.get(msgId);
             if (listener != null) {
-                listener.onNoSub(msgId, (Map<String, Object>) jsonFields
-                        .get(DdpMessageField.ERROR));
+                listener.onNoSub(msgId, (Map<String, Object>) jsonFields.get(DdpMessageField.ERROR));
                 mMsgListeners.remove(msgId);
             }
         } else if (msgtype.equals(DdpMessageType.RESULT)) {
-            String msgId = (String) jsonFields.get(DdpMessageField.ID
-                    .toString());
+            String msgId = (String) jsonFields.get(DdpMessageField.ID.toString());
             if (msgId != null) {
                 DDPListener listener = (DDPListener) mMsgListeners.get(msgId);
                 if (listener != null) {
@@ -552,6 +563,25 @@ public class DDPClient extends Observable {
         else if (msgtype.equals(DdpMessageType.CLOSED)) {
             mConnState = CONNSTATE.Closed;
         }
+
+        //BB-MOD (the server sends ping I should answer PONG -- if I send PING > I should test for PONG or reconnect
+        else if (msgtype.equals(DdpMessageType.PING)) {
+            //reply with PONG
+            Map<String, Object> pingMsg = new HashMap<String, Object>();
+            pingMsg.put(DdpMessageField.MSG, DdpMessageType.PONG);
+            //  If the received ping message includes an id field, the pong message must include the same id field.
+            String msgId = (String) jsonFields.get(DdpMessageField.ID.toString());
+            if (msgId != null) {
+                pingMsg.put(DdpMessageField.ID, msgId);
+            }
+            send(pingMsg);
+        }
+        else if (msgtype.equals(DdpMessageType.PONG)) {
+            //TODO - DDPClient - Server is still alive so stop the countdown timer to reconnection attempt
+        }
+
+        //BB-MOD - moved here so that the observers are notified AFTER the internal state has been updated
+        this.notifyObservers(jsonFields);
     }
 
     /**
