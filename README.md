@@ -1,12 +1,19 @@
 Meteor.js Java DDP Client
 =========================
 
+
 Origins/Acknowledgements
 ------------------------
-This is a fork and fairly big fleshing out of [Peter Kutrumbos' 
+This is a fork of [Kenyee's java-ddp-client}(https://github.com/kenyee/java-ddp-client)
+which in itself is a fork and fairly big fleshing out of [Peter Kutrumbos' 
 DDP Client](https://github.com/kutrumbo/java-ddp-client).
 
-Differences include:
+LyricalPolymath Differences include:
+
+* changed build.gradle to solve compilation issues on mac
+* updated DDPClient to protocol v1 and implemented the heartbeat Ping-Pong mechanism
+
+Kenyess Differences include:
 
 * switched to using Gradle for builds to remove duplicated Websocket 
   and Gson libraries from source code
